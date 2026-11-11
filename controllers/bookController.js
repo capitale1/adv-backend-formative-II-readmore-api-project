@@ -3,6 +3,9 @@ const Book = require('../models/Book');
 const Author = require('../models/Author');
 const handleError = require('../utils/errorHandler');
 
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SORTABLE_FIELDS = ['price', 'title', 'publishedYear'];
+
 // Returns { status, message } if a business rule is broken, otherwise null
 const checkBookRules = async ({ title, price, publishedYear, author }, currentBookId = null) => {
   // Rule 3
@@ -66,10 +69,86 @@ exports.createBook = async (req, res) => {
   }
 };
 
+// Rule 5: filters are added only when their query param is present
 exports.getBooks = async (req, res) => {
   try {
-    const books = await Book.find().populate('author');
-    res.json(books);
+    const { genre, minPrice, maxPrice, author, search, sort, order, page, limit } = req.query;
+    const filter = {};
+
+    if (genre) {
+      filter.genre = genre;
+    }
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      filter.price = {};
+      if (minPrice !== undefined) {
+        if (Number.isNaN(Number(minPrice))) {
+          return res.status(400).json({ message: 'minPrice must be a number' });
+        }
+        filter.price.$gte = Number(minPrice);
+      }
+      if (maxPrice !== undefined) {
+        if (Number.isNaN(Number(maxPrice))) {
+          return res.status(400).json({ message: 'maxPrice must be a number' });
+        }
+        filter.price.$lte = Number(maxPrice);
+      }
+      if (filter.price.$gte > filter.price.$lte) {
+        return res.status(400).json({ message: 'minPrice cannot be greater than maxPrice' });
+      }
+    }
+
+    if (author) {
+      if (!mongoose.isValidObjectId(author)) {
+        return res.status(400).json({ message: `Invalid author id: ${author}` });
+      }
+      filter.author = author;
+    }
+
+    if (search) {
+      filter.title = { $regex: escapeRegex(search), $options: 'i' };
+    }
+
+    let sortOption = {};
+    if (sort) {
+      if (!SORTABLE_FIELDS.includes(sort)) {
+        return res
+          .status(400)
+          .json({ message: `sort must be one of: ${SORTABLE_FIELDS.join(', ')}` });
+      }
+      if (order && !['asc', 'desc'].includes(order)) {
+        return res.status(400).json({ message: 'order must be asc or desc' });
+      }
+      sortOption = { [sort]: order === 'desc' ? -1 : 1 };
+    }
+
+    // Pagination (challenge)
+    const pageNum = page === undefined ? 1 : Number(page);
+    const limitNum = limit === undefined ? 10 : Number(limit);
+    if (!Number.isInteger(pageNum) || pageNum < 1) {
+      return res.status(400).json({ message: 'page must be a whole number of 1 or more' });
+    }
+    if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({ message: 'limit must be a whole number between 1 and 100' });
+    }
+
+    const [total, results] = await Promise.all([
+      Book.countDocuments(filter).collation({ locale: 'en', strength: 2 }),
+      Book.find(filter)
+        .collation({ locale: 'en', strength: 2 })
+        .sort(sortOption)
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .populate('author'),
+    ]);
+
+    res.json({
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+      results,
+    });
   } catch (err) {
     handleError(res, err);
   }
