@@ -1,4 +1,5 @@
 const Author = require('../models/Author');
+const Book = require('../models/Book');
 const handleError = require('../utils/errorHandler');
 
 exports.createAuthor = async (req, res) => {
@@ -49,13 +50,22 @@ exports.updateAuthor = async (req, res) => {
   }
 };
 
+// Rule 4: cascade delete. Removing an author also removes their books
 exports.deleteAuthor = async (req, res) => {
   try {
-    const author = await Author.findByIdAndDelete(req.params.id);
+    const author = await Author.findById(req.params.id);
     if (!author) {
       return res.status(404).json({ message: `No author found with id ${req.params.id}` });
     }
-    res.json({ message: 'Author deleted', author });
+
+    const { deletedCount } = await Book.deleteMany({ author: author._id });
+    await author.deleteOne();
+
+    res.json({
+      message: `Author "${author.name}" and ${deletedCount} book(s) deleted`,
+      author,
+      deletedBooks: deletedCount,
+    });
   } catch (err) {
     handleError(res, err);
   }
