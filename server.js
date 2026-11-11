@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const authorRoutes = require('./routes/authorRoutes');
 
 const app = express();
 app.use(express.json());
@@ -8,6 +9,13 @@ app.use(express.json());
 // Health check
 app.get('/', (req, res) => {
   res.json({ message: 'ReadMore API is running' });
+});
+
+app.use('/authors', authorRoutes);
+
+// Any unknown route
+app.use((req, res) => {
+  res.status(404).json({ message: `Route ${req.originalUrl} not found` });
 });
 
 const PORT = process.env.PORT || 3000;
