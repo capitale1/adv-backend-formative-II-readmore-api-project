@@ -70,3 +70,37 @@ exports.deleteAuthor = async (req, res) => {
     handleError(res, err);
   }
 };
+
+// Rule 6: summary statistics from the author's books
+exports.getAuthorStats = async (req, res) => {
+  try {
+    const author = await Author.findById(req.params.id);
+    if (!author) {
+      return res.status(404).json({ message: `No author found with id ${req.params.id}` });
+    }
+
+    const books = await Book.find({ author: author._id }).sort({ price: 1 });
+
+    if (books.length === 0) {
+      return res.json({
+        author: author.name,
+        bookCount: 0,
+        averagePrice: null,
+        cheapestBook: null,
+        mostExpensiveBook: null,
+      });
+    }
+
+    const total = books.reduce((sum, book) => sum + book.price, 0);
+
+    res.json({
+      author: author.name,
+      bookCount: books.length,
+      averagePrice: Math.round((total / books.length) * 100) / 100,
+      cheapestBook: books[0].title,
+      mostExpensiveBook: books[books.length - 1].title,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
