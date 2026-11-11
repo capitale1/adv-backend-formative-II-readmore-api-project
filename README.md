@@ -1,172 +1,126 @@
-# ReadMore API — Express + MongoDB (Mongoose)
+# ReadMore API
 
-Your first backend API assignment. Build a small REST API for a bookstore using **Express.js**, with **MongoDB** as the database and **Mongoose** as the modelling layer.
+A REST API for a bookstore, built with Express.js, MongoDB and Mongoose. It manages **authors** and **books** (one author has many books) and enforces business rules the database can't enforce on its own.
 
-There are **two entities** — **Author** and **Book** — and they are **linked**: one author can have many books, and every book belongs to one author. You will model them, connect to MongoDB, and build endpoints for each.
+> The original assignment brief is in [ASSIGNMENT.md](ASSIGNMENT.md).
 
-Then, in **Part 4**, the store "goes live" and your endpoints have to enforce **real business rules** the database won't enforce on its own. That part is where the marks are — it rewards how you *think*, not just whether the CRUD works.
+## Video walkthrough
 
-> **Before you start:** watch the Mongoose video shared with this assignment. It covers connecting to MongoDB, defining schemas and models, and the basic query methods you will need. This is a take-home assignment — you are expected to work out the *how* yourself.
+[Watch the walkthrough](PASTE_VIDEO_LINK_HERE)
 
----
+## Tech stack
 
-## What you need
+- Node.js + Express.js
+- MongoDB Atlas + Mongoose
+- dotenv, nodemon
 
-- **Node.js 18+** and **npm**
-- **MongoDB** — either a local install or a free **MongoDB Atlas** cluster
-- An API client to test your endpoints: **Postman**, **Insomnia**, or the VS Code **REST Client** extension
-- Suggested packages: `express`, `mongoose`, `dotenv` (and `nodemon` for development)
+## Setup
 
----
+1. Clone the repo and install dependencies:
+   ```bash
+   npm install
+   ```
+2. Create a `.env` file in the project root (see `.env.example`):
+   ```
+   MONGO_URI=your-mongodb-connection-string
+   PORT=3000
+   ```
+3. Start the server:
+   ```bash
+   npm run dev
+   ```
+   The API runs at http://localhost:3000
 
-## The data model
-
-```
-authors ──< books
-```
-
-One author has **many** books; each book belongs to **one** author. The link is a field on the book that stores the author's id.
-
-| Entity  | Fields                                                              |
-|---------|--------------------------------------------------------------------|
-| Author  | `name`, `country`, `bio`                                           |
-| Book    | `title`, `genre`, `price`, `publishedYear`, `author` (→ Author id) |
-
----
-
-## Suggested project structure
-
-Keep the code organised. A route should only map a URL to a function; the **controller** is the function that does the actual work — reading the request, applying the rules, talking to the database, and choosing the response and status code. Keeping them apart is where most of the marks live: your routes will be short, your controllers will have to *think*.
+## Project structure
 
 ```
-readmore-api/
-├── .env             ← your MongoDB connection string (do NOT commit real secrets)
-├── .gitignore       ← ignore node_modules and .env
-├── server.js        ← app entry point: connect to DB + start the server
-├── models/          ← Author and Book schemas
-├── controllers/     ← the logic lives here
-└── routes/          ← wire URLs to controller functions
+├── server.js              # connects to MongoDB, then starts the server
+├── models/
+│   ├── Author.js
+│   └── Book.js            # author field references the Author model
+├── controllers/
+│   ├── authorController.js
+│   └── bookController.js
+├── routes/
+│   ├── authorRoutes.js
+│   └── bookRoutes.js
+└── utils/
+    └── errorHandler.js    # shared error responses
 ```
 
----
+Routes only map URLs to controller functions; all logic and business rules live in the controllers.
 
-## Part 0 — Project setup
+## Endpoints
 
-Get a server running and connected to MongoDB before you build anything else.
+### Authors
 
-- Initialise the project and install your dependencies.
-- Store your MongoDB connection string in a `.env` file (never hard-code it).
-- Connect to MongoDB on startup and only start listening once the connection succeeds.
-- Add a health-check route (`GET /`) that returns a simple JSON message.
+| Method | Path | Description |
+|---|---|---|
+| POST | `/authors` | Create an author |
+| GET | `/authors` | Get all authors |
+| GET | `/authors/:id` | Get one author |
+| PUT | `/authors/:id` | Update an author |
+| DELETE | `/authors/:id` | Delete an author **and their books** |
+| GET | `/authors/:id/books` | Get all books by an author |
+| GET | `/authors/:id/stats` | Get statistics for an author's books |
 
----
+### Books
 
-## Part 1 — Define the two models
+| Method | Path | Description |
+|---|---|---|
+| POST | `/books` | Create a book for an existing author |
+| GET | `/books` | Get books, with filtering, sorting and pagination |
+| GET | `/books/:id` | Get one book |
+| PUT | `/books/:id` | Update a book |
+| DELETE | `/books/:id` | Delete a book |
 
-> **Concept:** a Mongoose **schema** describes the shape of a document; a **model** is what you use to read and write those documents. The link between two collections is made with a field of type `ObjectId` that **references** the other model — this is what later lets you `populate` the author's full details onto a book.
+Book reads populate the `author` field with the author's full details.
 
-- Create the **Author** model with the fields listed above.
-- Create the **Book** model, including the `author` field that references the Author model. This reference is what links the two entities.
-- Decide which fields should be **required**.
+## Business rules
 
----
+| # | Rule | Response |
+|---|---|---|
+| 1 | A book's author id must belong to an existing author | `400` |
+| 2 | An author can't have two books with the same title (case-insensitive) | `409` |
+| 3 | Price must be greater than 0; published year must be between 1450 and the current year | `422` |
+| 4 | Deleting an author also deletes their books (cascade) | `200` |
+| 5 | `GET /books` supports any combination of filters | `200` / `400` for invalid params |
+| 6 | `GET /authors/:id/stats` returns a summary, including when there are no books | `200` |
 
-## Part 2 — Author endpoints
+Ids that are well-formed but don't exist return `404`; malformed ids return `400`.
 
-Build these five endpoints for the **Author** entity, mounted under `/authors`.
+### Rule 4: author-delete policy (cascade)
 
-| # | Method   | Path            | What it does              |
-|---|----------|-----------------|---------------------------|
-| 1 | `POST`   | `/authors`      | Create a new author       |
-| 2 | `GET`    | `/authors`      | Get **all** authors       |
-| 3 | `GET`    | `/authors/:id`  | Get **one** author by id  |
-| 4 | `PUT`    | `/authors/:id`  | Update an author          |
-| 5 | `DELETE` | `/authors/:id`  | Delete an author          |
+I chose to **cascade**: deleting an author also deletes all of their books.
 
-Put the logic in a controller; keep the route file to wiring only. For read-one, update, and delete, return **404** with a helpful message when no author has that id.
+**Why:** in this API a book can't exist without a valid author (Rule 1), so once the author is gone their books have no valid owner. Cascading keeps the database consistent in one step, with no orphans and no placeholder "Unknown Author".
 
----
+**Downside:** it's destructive and permanent. Deleting the wrong author, or an author whose books are tied to past sales, loses that data. A production store might instead block the delete (409) or use a soft delete (archiving records instead of removing them). Wrapping both deletes in a transaction would also guarantee they succeed or fail together.
 
-## Part 3 — Book endpoints (the linked entity)
+### Rule 5: filtering, sorting and pagination
 
-Build the same five endpoints for the **Book** entity, mounted under `/books`.
+The query is built dynamically: only parameters that are present are added to the filter.
 
-| # | Method   | Path          | What it does                    |
-|---|----------|---------------|---------------------------------|
-| 1 | `POST`   | `/books`      | Create a book **for an author** |
-| 2 | `GET`    | `/books`      | Get all books                   |
-| 3 | `GET`    | `/books/:id`  | Get one book by id              |
-| 4 | `PUT`    | `/books/:id`  | Update a book                   |
-| 5 | `DELETE` | `/books/:id`  | Delete a book                   |
+```
+GET /books?genre=Thriller&minPrice=10&maxPrice=30&search=sea&sort=price&order=asc&page=1&limit=10
+```
 
-When you create a book, the request body must include the id of an author that already exists:
+| Param | Effect |
+|---|---|
+| `genre` | Exact genre (case-insensitive) |
+| `minPrice` / `maxPrice` | Price range; either, both or neither |
+| `author` | Books by that author id |
+| `search` | Title contains the text (case-insensitive) |
+| `sort` + `order` | Sort by `price`, `title` or `publishedYear`, `asc` or `desc` |
+| `page` + `limit` | Pagination (defaults: page 1, limit 10, max 100) |
+
+Response shape:
 
 ```json
-{
-  "title": "The Silent Sea",
-  "genre": "Thriller",
-  "price": 24.99,
-  "publishedYear": 2021,
-  "author": "<an existing author id>"
-}
+{ "page": 1, "limit": 10, "total": 4, "totalPages": 1, "results": [ ... ] }
 ```
 
-### Requirements
-- **Show the link.** On `GET /books` and `GET /books/:id`, the author should appear as the **full author details**, not just an id. (Mongoose has a feature for this — find it in the video.)
-- Return **404** when a book id is not found.
-- **Add one linking endpoint:** `GET /authors/:id/books` — return all books written by that author.
-
----
-
-## Part 4 — The Scenario: ReadMore goes live
-
-> **This is the part that tests your thinking.** So far your controllers just move data in and out. Now the store is opening to real customers, and the product owner hands you rules the API must enforce. **MongoDB will not enforce these for you** — your controllers have to. Some have an obvious solution; at least one has *no single right answer*, and you must choose an approach and defend it.
-
-Read all six requirements before writing code — some affect each other.
-
-### 1 — No orphan books
-A book must belong to a **real** author. If someone tries to create a book with an author id that doesn't exist, reject it with **400** and don't save it.
-> The Book schema already marks `author` as required. Why is that *not enough* to stop a made-up id?
-
-### 2 — No duplicate titles per author
-The same author may not have two books with the **same title**, treated case-insensitively (`"the silent sea"` = `"The Silent Sea"`). Reject a duplicate with **409**.
-> This rule is per-author, not global — two *different* authors may each write a book called "Home". Your check has to reflect that.
-
-### 3 — Rules the schema can't express
-Reject with **422** and a helpful message if `price` is zero or negative, or if `publishedYear` is in the future or before 1450.
-
-### 4 — Deleting an author who still has books *(the hard one)*
-Deleting an author currently leaves their books pointing at an id that no longer exists (**orphans**). Fix this. Three reasonable policies exist:
-
-| Option | Behaviour                                                                   |
-|--------|-----------------------------------------------------------------------------|
-| **A**  | **Block** the delete — return **409** if the author still has books.         |
-| **B**  | **Cascade** — delete the author *and* all of their books.                   |
-| **C**  | **Reassign** — move the books to a fallback author before deleting.         |
-
-**Pick ONE, implement it, and justify it out loud in your video:** why you chose it and what its downside is — every option has one.
-> What would a real bookstore want? Does your answer change if the books have already been sold?
-
-### 5 — A search & filter endpoint
-Upgrade `GET /books` to accept these **optional** query parameters, in any combination:
-
-```
-GET /books?genre=Thriller&minPrice=10&maxPrice=30&search=sea&sort=price&order=asc
-```
-
-| Param                 | Effect                                                          |
-|-----------------------|----------------------------------------------------------------|
-| `genre`               | only books of that genre                                       |
-| `minPrice`/`maxPrice` | price within the range (either, both, or neither may appear)   |
-| `author`              | only books by that author id                                   |
-| `search`              | title contains this text (case-insensitive)                    |
-| `sort` + `order`      | sort by `price`, `title`, or `publishedYear`, ascending/descending |
-
-The catch: **only the parameters actually present should be applied.** If the client sends none, return everything. You must build the query **dynamically** — do not write a separate hard-coded query for every combination.
-> What does your filter look like with only `genre`? Only `minPrice`? Both prices? Sketch it before coding.
-
-### 6 — Author statistics
-Add `GET /authors/:id/stats` returning a summary computed from that author's books:
+### Rule 6: author statistics
 
 ```json
 {
@@ -178,23 +132,8 @@ Add `GET /authors/:id/stats` returning a summary computed from that author's boo
 }
 ```
 
-If the author has **no books**, return sensible values instead of crashing — decide what "sensible" means.
+If the author has no books, `bookCount` is `0` and the other values are `null`. An average of `0` would wrongly suggest the books are free, so `null` is used to mean "no value".
 
-**Challenge:** add **pagination** to `GET /books` (`page` and `limit` params) and include `page`, `limit`, `total`, and the `results` in the response.
+## Author
 
----
-
-## What to submit
-
-
-Submit a **a Github repository link** containing your project code. The repository must also contain **a video recording** in which you walk through your entire implementation. Your video should:
-
-- Show the code for your models, controllers, and routes, explaining what each part does.
-- Run the server and demonstrate **every endpoint** live in your API client (Postman/Insomnia/REST Client).
-- Demonstrate each **Part 4** business rule working — the rejected orphan (400), the rejected duplicate (409), the rejected invalid price/year (422), your author-delete policy, `GET /books` with **at least two filters combined**, and `GET /authors/:id/stats`.
-- **Explain your reasoning out loud**, especially your choice of author-delete policy (Requirement 4) and its downside.
-
-> I will be grading how you *think*, so narrate your decisions — don't just click through.
-
-Good luck — build it one endpoint at a time, and test each in your API client before moving on.
----
+Armstrong NGORORANO
